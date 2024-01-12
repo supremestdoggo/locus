@@ -1,0 +1,13 @@
+{
+  "dependencies": {
+    "static-handler": "^0.4.3"
+  },
+  "name": "locus",
+  "version": "0.0.1",
+  "description": "A system for producing VR content on the web.",
+  "scripts": {
+    "main": "npx static-handler --cors --coop --coep --corp -p 8080 ./"
+  },
+  "author": "supremestdoggo",
+  "license": "MIT"
+}
