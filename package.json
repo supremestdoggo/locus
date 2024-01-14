@@ -4,10 +4,16 @@
   },
   "name": "locus",
   "version": "0.0.1",
-  "description": "A system for producing VR content on the web.",
+  "description": "A system for producing VR content for the web.",
   "scripts": {
-    "main": "npx static-handler --cors --coop --coep --corp -p 8080 ./"
+    "asbuild:debug": "asc --config asconfig.json --target debug",
+    "asbuild:release": "asc --config asconfig.json --target release",
+    "asbuild": "npm run asbuild:debug && npm run asbuild:release",
+    "start": "npx static-handler --cors --coop --coep --corp -p 8080 ."
   },
   "author": "supremestdoggo",
-  "license": "MIT"
+  "license": "MIT",
+  "devDependencies": {
+    "assemblyscript": "^0.27.22"
+  }
 }

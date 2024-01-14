@@ -42,4 +42,4 @@ entities.set(0, { // world object
   children: entities.keys()
 });
 
-init_entity(0, null, url="build/entity.wasm");
+init_entity(0, null, url="build/entity.release.wasm");
