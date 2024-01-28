@@ -5,11 +5,19 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width">
   <title>locus</title>
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://unpkg.com/three/build/three.module.js",
+        "three/addons/": "https://unpkg.com/three/examples/jsm/"
+      }
+    }
+  </script>
   <link href="style.css" rel="stylesheet" type="text/css" />
 </head>
 
 <body>
-  <script src="script.js"></script>
+  <script src="script.js" type="module"></script>
 </body>
 
 </html>

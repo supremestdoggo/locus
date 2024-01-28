@@ -1,17 +1,18 @@
 import { OBJECT, TOTAL_OVERHEAD } from "rt/common";
 
 // @ts-ignore decorator
-@external("stdlib", "log")
-declare function print(str: usize, len: usize): void;
-// @ts-ignore decorator
-@external("stdlib", "spawn_routine")
-declare function spawn_routine(str: usize, len: usize, p: usize): void;
-// @ts-ignore decorator
 @external("env", "text_encoding")
 declare var encoding: i32;
 // @ts-ignore decorator
 @external("encodings", "UTF_16LE")
 declare const utf16: i32;
+// @ts-ignore decorator
+@external("stdlib", "load_geometry_from_url")
+declare function load_geo(str: usize, len: usize): i32;
+// @ts-ignore decorator
+@external("stdlib", "log")
+declare function print(str: usize, len: usize): i32;
+
 
 // @ts-ignore decorator
 @start
@@ -24,13 +25,7 @@ function strlen(str: usize): usize {
 }
 
 export function main(): void {
-  const msg = changetype<usize>("Hello, World!");
-  const thread_name = changetype<usize>("side_main");
-  print(msg, strlen(msg));
-  spawn_routine(thread_name, strlen(thread_name), 0);
-}
-
-export function side_main(): void {
-  const msg = changetype<usize>("Thread 2!");
-  print(msg, strlen(msg));
+  const path = changetype<usize>("Box.glb");
+  load_geo(path, strlen(path));
+  print(path, strlen(path));
 }

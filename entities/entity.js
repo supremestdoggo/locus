@@ -1,29 +1,29 @@
-async function spawn_thread(module, memory=null, thread_info=null) {
-  let mem;
-  const isMain = (memory === null);
-  if (isMain) mem = new WebAssembly.Memory({
-      initial: 1,
-      maximum: 1,
-      shared: true,
-    });
-  else mem = memory;
+const memory = new WebAssembly.Memory({
+  initial: 1,
+  maximum: 1,
+  shared: true,
+});
 
+async function spawn_thread(module, thread_info=null) {
   const thread = new Worker("thread.js", { type: "module" });
+  const isMain = (thread_info == null);
 
-  // set up communication
+  // set up message communication
   thread.addEventListener("message", async (e) => {
     const data = e.data;
     if (data.etype === "routine") { // spawn new routine
-      spawn_thread(module, mem, {
+      spawn_thread(module, {
         "func_name": data.name,
         "job": "side",
-      })
+      });
+    } else if (data.etype === "geo") { // load geometry
+      postMessage(data);
     }
   });
 
-  //initialize thread
+  // initialize thread
   let thread_unready = true;
-  const ready_listener = (e) => {
+  const ready_listener = () => {
     thread_unready = false;
   };
   thread.addEventListener("message", ready_listener);
@@ -31,18 +31,13 @@ async function spawn_thread(module, memory=null, thread_info=null) {
   const thread_init_data = {
     "etype": "init",
     "module": module,
-    "memory": mem,
+    "memory": memory,
     "job": (isMain) ? "main" : thread_info.job,
-    "func": "main"
+    "func": (isMain) ? "main": thread_info.func_name,
   };
 
   if (!isMain) {
-    thread_init_data.func = thread_info.func_name;
-    if (thread_info.job === "side") {
-      thread_init_data.func = thread_info.func_name;
-      thread_init_data.p = thread_info.p;
-    }
-    else if (thread_info.job === "event") thread_init_data.event = thread_info.event_id;
+    if (thread_info.job === "side") thread_init_data.p = thread_info.p;
   }
 
   while (thread_unready) {

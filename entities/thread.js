@@ -3,6 +3,7 @@ const jobs = {
   "side": 1,
   "event": 2
 };
+
 const encodings = [
   "utf8",
   "866",
@@ -46,11 +47,17 @@ const encodings = [
   "x-user-defined"
 ];
 
-let ready = false;
+const generateSharedTypedArray = (array_type, elements) => {
+  return new array_type(new SharedArrayBuffer(elements * array_type.BYTES_PER_ELEMENT));
+};
+const return_arr = generateSharedTypedArray(Int32Array, 2); // used for blocking functions
+
+let ready = false; // if the thread is ready or not
 const thread_data = {
   module: null,
   instance: null,
-  memory: null
+  memory: null,
+  transformation_pointer_array: null // a shared array containing the pointers to position, rotation, and scaling
 };
 
 // this function will one day be replaced with a simple TextDecoder.decode() call, but that still doesn't support SharedArrayBuffers
@@ -87,14 +94,25 @@ const import_object = {
         "name": decoded_name,
         "p": p
       });
+    },
+    // loads geometry from url
+    load_geometry_from_url(url_pointer, length) {
+      const decoded_url = decodeString(url_pointer, length, import_object.env.text_encoding.value);
+      return_arr[1] = 0; // "value has been returned" flag set to false
+      postMessage({
+        "etype": "geo",
+        "gtype": "url",
+        "url": decoded_url,
+        "ret": return_arr
+      });
+      Atomics.wait(return_arr, 1, 0); // wait for host to return a value, and if a value has already been returned, skip wait
+      return return_arr[0];
     }
   },
   // stuff relating to this thread's task
   task: {
     JOB_INIT: NUM_CONST(0), // first thread, initializes entity and does stuff
     JOB_SIDE: NUM_CONST(1), // other normal threads
-    JOB_EVENT_HANDLER: NUM_CONST(2), // dedicated event listeners
-    EVENT_RECEIVE_MESSAGE: NUM_CONST(0),
   },
 
   /* TEXT ENCODING IDENTIFIERS */
@@ -140,7 +158,7 @@ const import_object = {
     UTF_16BE: NUM_CONST(37),
     UTF_16LE: NUM_CONST(38),
     X_USER_DEFINED: NUM_CONST(39)
-  }
+  },
 }
 
 // get code from main script
