@@ -159,6 +159,12 @@ const import_object = {
     UTF_16LE: NUM_CONST(38),
     X_USER_DEFINED: NUM_CONST(39)
   },
+  geometry: {
+    set_position_mirror(pointer) {
+      thread_data.transformation_pointer_array[0] = pointer;
+      Atomics.notify(thread_data.transformation_pointer_array, 0);
+    }
+  }
 }
 
 // get code from main script
@@ -181,6 +187,7 @@ if (init_data.job === "side") import_object.env.thread_input = NUM_CONST(init_da
 
 thread_data.memory = init_data.memory;
 thread_data.module = init_data.module;
+thread_data.transformation_pointer_array = init_data.transform_pointers;
 thread_data.instance = await WebAssembly.instantiate(init_data.module, import_object);
 
 ready = true;

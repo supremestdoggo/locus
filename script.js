@@ -33,10 +33,15 @@ async function init_entity(parent, code=null, url="") {
     worker: new Worker("entities/entity.js", { type: "module" }),
     parent: parent,
     children: [],
-    geometry: null
+    geometry: null,
+    mirrors: {
+      position: null,
+      rotation: null,
+      scale: null
+    }
   };
 
-  entities.set(e_id, entity)
+  entities.set(e_id, entity);
 
   // set up communication
   entity.worker.addEventListener("message", async (e) => {
@@ -82,7 +87,60 @@ async function init_entity(parent, code=null, url="") {
   // send code and wait for worker to set up
   let worker_unready = true;
   const ready_listener = (e) => {
-    worker_unready = false;
+    if (e.data.etype === "ready") {
+      const buffer = e.data.memory.buffer;
+      const pointers = e.data.transformation_pointers;
+
+      const position_mirror_routine = async () => { // manage position mirror
+        while (1) {
+          await Atomics.waitAsync(pointers, 0, pointers[0]).value;
+          if (pointers[0] === -1) entity.mirrors.position = null;
+          else {
+            entity.mirrors.position = new Float64Array(buffer, pointers[0], 3);
+            if (entity.geometry) {
+              entity.mirrors.position[0] = entity.geometry.position.x;
+              entity.mirrors.position[1] = entity.geometry.position.y;
+              entity.mirrors.position[2] = entity.geometry.position.z;
+            }
+          }
+        }
+      };
+      const rotation_mirror_routine = async () => { // manage rotation mirror
+        while (1) {
+          await Atomics.waitAsync(pointers, 1, pointers[1]).value;
+          if (pointers[1] === -1) entity.mirrors.rotation = null;
+          else {
+            entity.mirrors.rotation = new Float64Array(buffer, pointers[1], 3);
+            if (entity.geometry) {
+              entity.mirrors.rotation[0] = entity.geometry.rotation.x;
+              entity.mirrors.rotation[1] = entity.geometry.rotation.y;
+              entity.mirrors.rotation[2] = entity.geometry.rotation.z;
+            }
+          }
+        }
+      };
+      const scale_mirror_routine = async () => { // manage scale mirror
+        while (1) {
+          await Atomics.waitAsync(pointers, 2, pointers[2]).value;
+          if (pointers[2] === -1) entity.mirrors.scale = null;
+          else {
+            entity.mirrors.scale = new Float64Array(buffer, pointers[2], 3);
+            if (entity.geometry) {
+              entity.mirrors.scale[0] = entity.geometry.scale.x;
+              entity.mirrors.scale[1] = entity.geometry.scale.y;
+              entity.mirrors.scale[2] = entity.geometry.scale.z;
+            }
+          }
+        }
+      };
+
+      position_mirror_routine();
+      rotation_mirror_routine();
+      scale_mirror_routine();
+
+
+      worker_unready = false;
+    }
   };
   entity.worker.addEventListener("message", ready_listener);
   while (worker_unready) {
@@ -101,6 +159,25 @@ entities.set(0, { // world object
 init_entity(0, null, "build/entity.release.wasm");
 
 function animate() {
+  for (entity in entities.values()) {
+    if (entity.geometry) {
+      if (entity.mirrors.position) {
+        entity.geometry.position.x = entity.mirrors.position[0];
+        entity.geometry.position.y = entity.mirrors.position[1];
+        entity.geometry.position.z = entity.mirrors.position[2];
+      }
+      if (entity.mirrors.rotation) {
+        entity.geometry.rotation.x = entity.mirrors.rotation[0];
+        entity.geometry.rotation.y = entity.mirrors.rotation[1];
+        entity.geometry.rotation.z = entity.mirrors.rotation[2];
+      }
+      if (entity.mirrors.scale) {
+        entity.geometry.scale.x = entity.mirrors.scale[0];
+        entity.geometry.scale.y = entity.mirrors.scale[1];
+        entity.geometry.scale.z = entity.mirrors.scale[2];
+      }
+    }
+  }
   renderer.render(scene, camera);
 }
 

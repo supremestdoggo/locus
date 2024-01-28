@@ -1,8 +1,17 @@
+const generateSharedTypedArray = (array_type, elements) => {
+  return new array_type(new SharedArrayBuffer(elements * array_type.BYTES_PER_ELEMENT));
+};
+
 const memory = new WebAssembly.Memory({
   initial: 1,
   maximum: 1,
   shared: true,
 });
+
+const transform_pointers = generateSharedTypedArray(Int32Array, 3);
+transform_pointers[0] = -1;
+transform_pointers[1] = -1;
+transform_pointers[2] = -1;
 
 async function spawn_thread(module, thread_info=null) {
   const thread = new Worker("thread.js", { type: "module" });
@@ -34,6 +43,7 @@ async function spawn_thread(module, thread_info=null) {
     "memory": memory,
     "job": (isMain) ? "main" : thread_info.job,
     "func": (isMain) ? "main": thread_info.func_name,
+    "transform_pointers": transform_pointers
   };
 
   if (!isMain) {
@@ -63,4 +73,8 @@ removeEventListener("message", init_listener);
 
 await spawn_thread(module);
 
-postMessage({"etype": "ready"});
+postMessage({
+  "etype": "ready",
+  "memory": memory,
+  "transformation_pointers": transform_pointers
+});
