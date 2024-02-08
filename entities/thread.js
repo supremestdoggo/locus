@@ -57,7 +57,11 @@ const thread_data = {
   module: null,
   instance: null,
   memory: null,
-  transformation_pointer_array: null // a shared array containing the pointers to position, rotation, and scaling
+  transformation_pointer_array: null, // a shared array containing the pointers to position, rotation, and scaling
+  clock: { // shared two-element array similar to return_arr. first element is just a wake-up call every frame, second is delta time
+    "signal": null,
+    "delta": null
+  }
 };
 
 // this function will one day be replaced with a simple TextDecoder.decode() call, but that still doesn't support SharedArrayBuffers
@@ -82,9 +86,10 @@ const import_object = {
     text_encoding: new WebAssembly.Global({ value: "i32", mutable: true }, 0), // current text encoding (defaults to utf-8)
   },
   stdlib: {
-    log(pointer, length) {
+    print(pointer, length) {
       console.log(decodeString(pointer, length, import_object.env.text_encoding.value));
     },
+    print_obj: console.log,
     // spawns a new thread using the exported function of name `name` (string length determined by `length`), passing p as a pointer to whatever stuff the program wants to pass to the new thread
     spawn_routine(name_pointer, length, p) {
       if (!ready) throw WebAssembly.RuntimeError("Threads cannot be spawned during initialization.");
@@ -107,6 +112,11 @@ const import_object = {
       });
       Atomics.wait(return_arr, 1, 0); // wait for host to return a value, and if a value has already been returned, skip wait
       return return_arr[0];
+    },
+    // wait for next frame
+    next_frame() {
+      Atomics.wait(thread_data.clock.signal, 0);
+      return thread_data.clock.delta[1];
     }
   },
   // stuff relating to this thread's task
@@ -163,6 +173,8 @@ const import_object = {
     set_position_mirror(pointer) {
       thread_data.transformation_pointer_array[0] = pointer;
       Atomics.notify(thread_data.transformation_pointer_array, 0);
+      Atomics.wait(thread_data.transformation_pointer_array, 0, pointer);
+      return;
     }
   }
 }
@@ -188,6 +200,8 @@ if (init_data.job === "side") import_object.env.thread_input = NUM_CONST(init_da
 thread_data.memory = init_data.memory;
 thread_data.module = init_data.module;
 thread_data.transformation_pointer_array = init_data.transform_pointers;
+thread_data.clock.signal = init_data.signal_clock;
+thread_data.clock.delta = init_data.delta_clock;
 thread_data.instance = await WebAssembly.instantiate(init_data.module, import_object);
 
 ready = true;

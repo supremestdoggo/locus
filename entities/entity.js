@@ -3,8 +3,8 @@ const generateSharedTypedArray = (array_type, elements) => {
 };
 
 const memory = new WebAssembly.Memory({
-  initial: 1,
-  maximum: 1,
+  initial: 32,
+  maximum: 64,
   shared: true,
 });
 
@@ -12,6 +12,8 @@ const transform_pointers = generateSharedTypedArray(Int32Array, 3);
 transform_pointers[0] = -1;
 transform_pointers[1] = -1;
 transform_pointers[2] = -1;
+
+var signal_clock, delta_clock;
 
 async function spawn_thread(module, thread_info=null) {
   const thread = new Worker("thread.js", { type: "module" });
@@ -43,7 +45,9 @@ async function spawn_thread(module, thread_info=null) {
     "memory": memory,
     "job": (isMain) ? "main" : thread_info.job,
     "func": (isMain) ? "main": thread_info.func_name,
-    "transform_pointers": transform_pointers
+    "transform_pointers": transform_pointers,
+    "signal_clock": signal_clock,
+    "delta_clock": delta_clock
   };
 
   if (!isMain) {
@@ -64,6 +68,8 @@ let init_promise = new Promise((resolve) => {init_resolver = resolve}); // now, 
 var module;
 let init_listener = (e) => {
   module = e.data.module;
+  signal_clock = e.data.signal_clock;
+  delta_clock = e.data.delta_clock;
   init_resolver();
 }
 
@@ -76,5 +82,5 @@ await spawn_thread(module);
 postMessage({
   "etype": "ready",
   "memory": memory,
-  "transformation_pointers": transform_pointers
+  "transformation_pointers": transform_pointers,
 });

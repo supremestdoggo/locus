@@ -15,6 +15,14 @@ renderer.setSize(window.innerWidth, window.innerHeight);
 document.body.appendChild(renderer.domElement);
 //document.body.appendChild(VRButton.createButton(renderer));
 
+
+const generateSharedTypedArray = (array_type, elements) => {
+  return new array_type(new SharedArrayBuffer(elements * array_type.BYTES_PER_ELEMENT));
+};
+
+const signal_clock = generateSharedTypedArray(Int32Array, 2);
+const delta_clock = new Float32Array(signal_clock.buffer);
+
 let entities = new Map();
 
 async function init_entity(parent, code=null, url="") {
@@ -74,13 +82,13 @@ async function init_entity(parent, code=null, url="") {
           scene.add(geo);
 
           data.ret[0] = 0;
+          Atomics.notify(data.ret, 1); // signal to caller that it is complete
         }, undefined, function (err) {
           data.ret[0] = 1;
           console.error(err);
+          Atomics.notify(data.ret, 1); // signal to caller that it is complete
         });
       }
-
-      Atomics.notify(data.ret, 1); // signal to caller that it is complete
     }
   })
 
@@ -93,44 +101,53 @@ async function init_entity(parent, code=null, url="") {
 
       const position_mirror_routine = async () => { // manage position mirror
         while (1) {
-          await Atomics.waitAsync(pointers, 0, pointers[0]).value;
+          await Atomics.waitAsync(pointers, 0, -1).value;
           if (pointers[0] === -1) entity.mirrors.position = null;
           else {
-            entity.mirrors.position = new Float64Array(buffer, pointers[0], 3);
+            let position = new Float64Array(buffer, pointers[0], 3);
             if (entity.geometry) {
-              entity.mirrors.position[0] = entity.geometry.position.x;
-              entity.mirrors.position[1] = entity.geometry.position.y;
-              entity.mirrors.position[2] = entity.geometry.position.z;
+              position[0] = entity.geometry.position.x;
+              position[1] = entity.geometry.position.y;
+              position[2] = entity.geometry.position.z;
             }
+            entity.mirrors.position = position;
           }
+          pointers[0] = -1;
+          Atomics.notify(pointers, 0);
         }
       };
       const rotation_mirror_routine = async () => { // manage rotation mirror
         while (1) {
-          await Atomics.waitAsync(pointers, 1, pointers[1]).value;
+          await Atomics.waitAsync(pointers, 1, -1).value;
           if (pointers[1] === -1) entity.mirrors.rotation = null;
           else {
-            entity.mirrors.rotation = new Float64Array(buffer, pointers[1], 3);
+            let rotation = new Float64Array(buffer, pointers[1], 3);
             if (entity.geometry) {
-              entity.mirrors.rotation[0] = entity.geometry.rotation.x;
-              entity.mirrors.rotation[1] = entity.geometry.rotation.y;
-              entity.mirrors.rotation[2] = entity.geometry.rotation.z;
+              rotation[0] = entity.geometry.rotation.x;
+              rotation[1] = entity.geometry.rotation.y;
+              rotation[2] = entity.geometry.rotation.z;
             }
+            entity.mirrors.rotation = rotation;
           }
+          pointers[1] = -1;
+          Atomics.notify(pointers, 1);
         }
       };
       const scale_mirror_routine = async () => { // manage scale mirror
         while (1) {
-          await Atomics.waitAsync(pointers, 2, pointers[2]).value;
+          await Atomics.waitAsync(pointers, 2, -1).value;
           if (pointers[2] === -1) entity.mirrors.scale = null;
           else {
-            entity.mirrors.scale = new Float64Array(buffer, pointers[2], 3);
+            let scale = new Float64Array(buffer, pointers[2], 3);
             if (entity.geometry) {
-              entity.mirrors.scale[0] = entity.geometry.scale.x;
-              entity.mirrors.scale[1] = entity.geometry.scale.y;
-              entity.mirrors.scale[2] = entity.geometry.scale.z;
+              scale[0] = entity.geometry.scale.x;
+              scale[1] = entity.geometry.scale.y;
+              scale[2] = entity.geometry.scale.z;
             }
+            entity.mirrors.scale = scale;
           }
+          pointers[2] = -1;
+          Atomics.notify(pointers, 2);
         }
       };
 
@@ -144,7 +161,12 @@ async function init_entity(parent, code=null, url="") {
   };
   entity.worker.addEventListener("message", ready_listener);
   while (worker_unready) {
-    entity.worker.postMessage({"etype": "init", "module": module});
+    entity.worker.postMessage({
+      "etype": "init",
+      "module": module,
+      "signal_clock": signal_clock,
+      "delta_clock": delta_clock
+    });
     await new Promise(resolve => setTimeout(resolve, 25))
   }
   entity.worker.removeEventListener("message", ready_listener);
@@ -156,10 +178,12 @@ entities.set(0, { // world object
   children: entities.keys()
 });
 
-init_entity(0, null, "build/entity.release.wasm");
+init_entity(0, null, "build/entity.wasm");
 
 function animate() {
-  for (entity in entities.values()) {
+  delta_clock[1] = 
+  Atomics.notify(signal_clock, 0);
+  for (const [_, entity] of entities) {
     if (entity.geometry) {
       if (entity.mirrors.position) {
         entity.geometry.position.x = entity.mirrors.position[0];
