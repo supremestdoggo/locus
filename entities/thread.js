@@ -175,6 +175,18 @@ const import_object = {
       Atomics.notify(thread_data.transformation_pointer_array, 0);
       Atomics.wait(thread_data.transformation_pointer_array, 0, pointer);
       return;
+    },
+    set_rotation_mirror(pointer) {
+      thread_data.transformation_pointer_array[1] = pointer;
+      Atomics.notify(thread_data.transformation_pointer_array, 1);
+      Atomics.wait(thread_data.transformation_pointer_array, 1, pointer);
+      return;
+    },
+    set_scale_mirror(pointer) {
+      thread_data.transformation_pointer_array[2] = pointer;
+      Atomics.notify(thread_data.transformation_pointer_array, 2);
+      Atomics.wait(thread_data.transformation_pointer_array, 2, pointer);
+      return;
     }
   }
 }
