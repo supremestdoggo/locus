@@ -1,6 +1,5 @@
 {
   "dependencies": {
-    "binaryen": "^116.0.0",
     "static-handler": "^0.4.3"
   },
   "name": "locus",
