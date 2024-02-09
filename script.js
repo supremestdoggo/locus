@@ -180,8 +180,8 @@ entities.set(0, { // world object
 
 init_entity(0, null, "build/entity.wasm");
 
-function animate() {
-  delta_clock[1] = 
+function animate(now) {
+  delta_clock[1] = now;
   Atomics.notify(signal_clock, 0);
   for (const [_, entity] of entities) {
     if (entity.geometry) {

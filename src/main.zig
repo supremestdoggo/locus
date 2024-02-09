@@ -16,8 +16,15 @@ export fn main() i32 {
     load_geometry_from_url(url.ptr, url.len);
 
     set_rotation_mirror(rotation.ptr);
-    while (next_frame() > 0) {
+    var old_timestamp = next_frame();
+    while (true) {
+        const new_timestamp = next_frame();
+        const dt = new_timestamp - old_timestamp;
+
+        print_obj(1000/dt); // print current framerate
         rotation[2] += 0.01;
+
+        old_timestamp = new_timestamp;
     }
     return 0;
 }
