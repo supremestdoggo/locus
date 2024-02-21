@@ -61,7 +61,7 @@ const thread_data = {
   clock: { // shared two-element array similar to return_arr. first element is just a wake-up call every frame, second is delta time
     "signal": null,
     "delta": null
-  }
+  },
 };
 
 // this function will one day be replaced with a simple TextDecoder.decode() call, but that still doesn't support SharedArrayBuffers
@@ -84,6 +84,14 @@ const import_object = {
     job: 0, // the set task of the thread
     thread_input: 0, // a pointer to whatever stuff the program wanted to pass to the new thread
     text_encoding: new WebAssembly.Global({ value: "i32", mutable: true }, 0), // current text encoding (defaults to utf-8)
+    id: 0,
+    parent_id: 0,
+    get_id() {return import_object.env.id;},
+    get_parent_id() {return import_object.env.parent_id;},
+    get_job() {return import_object.env.job;},
+    get_thread_input() {return import_object.env.thread_input;},
+    get_text_encoding() {return import_object.env.text_encoding;},
+    set_text_encoding(encoding) {import_object.env.text_encoding.value = encoding;}
   },
   stdlib: {
     print(pointer, length) {
@@ -117,6 +125,19 @@ const import_object = {
     next_frame() {
       Atomics.wait(thread_data.clock.signal, 0);
       return thread_data.clock.delta[1];
+    },
+    // spawn new entity from url
+    spawn_entity_from_url(url_pointer, length) {
+      return_arr[1] = 0;
+      postMessage({
+        "etype": "spawn_entity",
+        "origin": "url",
+        "url": decodeString(url_pointer, length, import_object.env.text_encoding.value),
+        "ret": return_arr
+      });
+      Atomics.wait(return_arr, 1, 0);
+
+      return return_arr[0];
     }
   },
   // stuff relating to this thread's task
@@ -174,19 +195,81 @@ const import_object = {
       thread_data.transformation_pointer_array[0] = pointer;
       Atomics.notify(thread_data.transformation_pointer_array, 0);
       Atomics.wait(thread_data.transformation_pointer_array, 0, pointer);
-      return;
     },
     set_rotation_mirror(pointer) {
       thread_data.transformation_pointer_array[1] = pointer;
       Atomics.notify(thread_data.transformation_pointer_array, 1);
       Atomics.wait(thread_data.transformation_pointer_array, 1, pointer);
-      return;
     },
     set_scale_mirror(pointer) {
       thread_data.transformation_pointer_array[2] = pointer;
       Atomics.notify(thread_data.transformation_pointer_array, 2);
       Atomics.wait(thread_data.transformation_pointer_array, 2, pointer);
-      return;
+    }
+  },
+  io: {
+    read_from_parent(pointer, length) { // read data from parent (returns length of bytes read)
+      return_arr[1] = 0;
+      postMessage({
+        "etype": "read_parent",
+        "offset": pointer,
+        "length": length,
+        "ret": return_arr
+      });
+      Atomics.wait(return_arr, 1, 0);
+      return return_arr[0];
+    },
+    write_to_parent(pointer, length) { // send data to parent
+      return_arr[1] = 0;
+      postMessage({
+        "etype": "write_parent",
+        "offset": pointer,
+        "length": length,
+        "ret": return_arr
+      });
+      Atomics.wait(return_arr, 1, 0);
+    },
+    read_from_child(id, pointer, length) { // read data from child (returns length of bytes read)
+      return_arr[1] = 0;
+      postMessage({
+        "etype": "read_child",
+        "id": id,
+        "offset": pointer,
+        "length": length,
+        "ret": return_arr
+      });
+      Atomics.wait(return_arr, 1, 0);
+      return return_arr[0];
+    },
+    write_to_child(id, pointer, length) {
+      return_arr[1] = 0;
+      postMessage({
+        "etype": "write_child",
+        "id": id,
+        "offset": pointer,
+        "length": length,
+        "ret": return_arr
+      });
+      Atomics.wait(return_arr, 1, 0);
+      return return_arr[0];
+    },
+    wait_for_message_parent() { // wait for data from parent
+      return_arr[1] = 0;
+      postMessage({
+        "etype": "wait_parent",
+        "ret": return_arr
+      });
+      Atomics.wait(return_arr, 1, 0);
+    },
+    wait_for_message_child(id) { // wait for data from child
+      return_arr[1] = 0;
+      postMessage({
+        "etype": "wait_child",
+        "id": id,
+        "ret": return_arr
+      });
+      Atomics.wait(return_arr, 1, 0);
+      return return_arr[0];
     }
   }
 }
@@ -207,6 +290,8 @@ removeEventListener("message", init_listener);
 
 import_object.env.memory = init_data.memory;
 import_object.env.job = NUM_CONST(jobs[init_data.job]);
+import_object.env.parent_id = init_data.parent_id;
+import_object.env.id = init_data.id;
 if (init_data.job === "side") import_object.env.thread_input = NUM_CONST(init_data.p);
 
 thread_data.memory = init_data.memory;

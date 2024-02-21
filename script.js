@@ -25,7 +25,7 @@ const delta_clock = new Float32Array(signal_clock.buffer);
 
 let entities = new Map();
 
-async function init_entity(parent, code=null, url="") {
+async function init_entity(parent, code=null, url="", port) {
   // compile and check code
   const module = await (async () => {
     if (code) return WebAssembly.compile(code);
@@ -89,6 +89,15 @@ async function init_entity(parent, code=null, url="") {
           Atomics.notify(data.ret, 1); // signal to caller that it is complete
         });
       }
+    } else if (data.etype === "spawn_entity") { // spawn entity
+      const internal_data = data.data;
+      const origin = internal_data.origin;
+      let child_id;
+
+      if (origin === "url") child_id = init_entity(e_id, null, internal_data.url, data.port); // spawn from url
+
+      data.id_arr[0] = child_id;
+      Atomics.notify(data.id_arr, 0);
     }
   })
 
@@ -96,6 +105,20 @@ async function init_entity(parent, code=null, url="") {
   let worker_unready = true;
   const ready_listener = (e) => {
     if (e.data.etype === "ready") {
+      // link message ports (this should probably be replaced with a better solution someday, as it creates a good bit of overhead)
+      const child_port = e.data.port
+
+      child_port.addEventListener("message", (event) => {
+        port.postMessage(event.data);
+      });
+      port.addEventListener("message", (event) => {
+        child_port.postMessage(event.data);
+      });
+
+      child_port.start();
+      port.start();
+
+      // set up transformation mirrors
       const buffer = e.data.memory.buffer;
       const pointers = e.data.transformation_pointers;
 
@@ -165,11 +188,15 @@ async function init_entity(parent, code=null, url="") {
       "etype": "init",
       "module": module,
       "signal_clock": signal_clock,
-      "delta_clock": delta_clock
+      "delta_clock": delta_clock,
+      "parent_id": parent,
+      "id": e_id
     });
     await new Promise(resolve => setTimeout(resolve, 25))
   }
   entity.worker.removeEventListener("message", ready_listener);
+
+  return e_id;
 }
 
 entities.set(0, { // world object
@@ -178,7 +205,7 @@ entities.set(0, { // world object
   children: entities.keys()
 });
 
-init_entity(0, null, "build/entity.wasm");
+init_entity(0, null, "build/entity.wasm", (new MessageChannel()).port1);
 
 function animate(now) {
   delta_clock[1] = now;
