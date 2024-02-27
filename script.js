@@ -39,14 +39,16 @@ async function init_entity(parent, code=null, url="", port) {
 
   const entity = {
     worker: new Worker("entities/entity.js", { type: "module" }),
-    parent: parent,
-    children: [],
     geometry: null,
     mirrors: {
       position: null,
       rotation: null,
-      scale: null
-    }
+      scale: null,
+      camera_position: null,
+      camera_rotation: null
+    },
+    parent_id: parent,
+    children: []
   };
 
   entities.set(e_id, entity);
@@ -69,14 +71,14 @@ async function init_entity(parent, code=null, url="", port) {
           const size = box.getSize(new THREE.Vector3()).length();
           const center = box.getCenter(new THREE.Vector3());
         
-          geo.position.x += camera.position.x - center.x;
-          geo.position.y += camera.position.y - center.y;
-          geo.position.z += camera.position.z - center.z;
+          //geo.position.x += camera.position.x - center.x;
+          //geo.position.y += camera.position.y - center.y;
+          //geo.position.z += camera.position.z - center.z;
 
-          geo.position.x -= size / 1.5;
-          geo.position.y -= size / 1.5;
-          geo.position.z -= size / 1.5;
-          camera.lookAt((new THREE.Box3().setFromObject(geo)).getCenter(new THREE.Vector3()));
+          //geo.position.x -= size / 1.5;
+          //geo.position.y -= size / 1.5;
+          //geo.position.z -= size / 1.5;
+          //camera.lookAt((new THREE.Box3().setFromObject(geo)).getCenter(new THREE.Vector3()));
         
           entity.geometry = geo;
           scene.add(geo);
@@ -95,30 +97,42 @@ async function init_entity(parent, code=null, url="", port) {
       let child_id;
 
       if (origin === "url") child_id = init_entity(e_id, null, internal_data.url, data.port); // spawn from url
+      entity.children.push(child_id);
 
       data.id_arr[0] = child_id;
       Atomics.notify(data.id_arr, 0);
     }
-  })
+  });
+  const entity_death_signal = generateSharedTypedArray(Int32Array, 1);
+  Atomics.waitAsync(entity_death_signal, 0, 0).value.then(() => {
+    entity.worker.terminate();
+    if (parent != 0) entities.get(parent).worker.postMessage({
+      "etype": "death",
+      "id": e_id
+    });
+    entities.delete(e_id);
+  });
 
   // send code and wait for worker to set up
   let worker_unready = true;
   const ready_listener = (e) => {
     if (e.data.etype === "ready") {
-      // link message ports (this should probably be replaced with a better solution someday, as it creates a good bit of overhead)
-      const child_port = e.data.port
+      if (port) {
+        // link message ports (this should probably be replaced with a better solution someday, as it creates a good bit of overhead)
+        const child_port = e.data.port
 
-      child_port.addEventListener("message", (event) => {
-        port.postMessage(event.data);
-      });
-      port.addEventListener("message", (event) => {
-        child_port.postMessage(event.data);
-      });
+        child_port.addEventListener("message", (event) => {
+          port.postMessage(event.data);
+        });
+        port.addEventListener("message", (event) => {
+          child_port.postMessage(event.data);
+        });
 
-      child_port.start();
-      port.start();
+        child_port.start();
+        port.start();
+      }
 
-      // set up transformation mirrors
+      // transformation mirrors
       const buffer = e.data.memory.buffer;
       const pointers = e.data.transformation_pointers;
 
@@ -178,6 +192,41 @@ async function init_entity(parent, code=null, url="", port) {
       rotation_mirror_routine();
       scale_mirror_routine();
 
+      // camera transformation mirrors
+      const camera_pointers = e.data.camera_transformation_pointers;
+      const camera_position_mirror_routine = async () => { // manage position mirror
+        while (1) {
+          await Atomics.waitAsync(camera_pointers, 0, -1).value;
+          if (camera_pointers[0] === -1) entity.mirrors.camera_position = null;
+          else {
+            let position = new Float64Array(buffer, camera_pointers[0], 3);
+            position[0] = camera.position.x;
+            position[1] = camera.position.y;
+            position[2] = camera.position.z;
+            entity.mirrors.camera_position = position;
+          }
+          camera_pointers[0] = -1;
+          Atomics.notify(camera_pointers, 0);
+        }
+      };
+      const camera_rotation_mirror_routine = async () => { // manage rotation mirror
+        while (1) {
+          await Atomics.waitAsync(camera_pointers, 1, -1).value;
+          if (camera_pointers[1] === -1) entity.mirrors.camera_rotation = null;
+          else {
+            let rotation = new Float64Array(buffer, camera_pointers[1], 3);
+            rotation[0] = camera.rotation.x;
+            rotation[1] = camera.rotation.y;
+            rotation[2] = camera.rotation.z;
+            entity.mirrors.camera_rotation = rotation;
+          }
+          camera_pointers[1] = -1;
+          Atomics.notify(camera_pointers, 1);
+        }
+      };
+
+      camera_position_mirror_routine();
+      camera_rotation_mirror_routine();
 
       worker_unready = false;
     }
@@ -201,8 +250,10 @@ async function init_entity(parent, code=null, url="", port) {
 
 entities.set(0, { // world object
   worker: null,
-  parent: null,
-  children: entities.keys()
+  geometry: null,
+  mirrors: {},
+  parent: 0,
+  children: []
 });
 
 init_entity(0, null, "build/entity.wasm", (new MessageChannel()).port1);
@@ -211,6 +262,17 @@ function animate(now) {
   delta_clock[1] = now;
   Atomics.notify(signal_clock, 0);
   for (const [_, entity] of entities) {
+    // READ BEFORE WRITE
+    if (entity.mirrors.camera_position) {
+      entity.mirrors.camera_position[0] = camera.position.x;
+      entity.mirrors.camera_position[1] = camera.position.y;
+      entity.mirrors.camera_position[2] = camera.position.z;
+    }
+    if (entity.mirrors.camera_rotation) {
+      entity.mirrors.camera_rotation[0] = camera.rotation.x;
+      entity.mirrors.camera_rotation[1] = camera.rotation.y;
+      entity.mirrors.camera_rotation[2] = camera.rotation.z;
+    }
     if (entity.geometry) {
       if (entity.mirrors.position) {
         entity.geometry.position.x = entity.mirrors.position[0];

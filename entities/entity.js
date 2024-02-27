@@ -9,9 +9,11 @@ const memory = new WebAssembly.Memory({
 });
 
 const transform_pointers = generateSharedTypedArray(Int32Array, 3);
-transform_pointers[0] = -1;
-transform_pointers[1] = -1;
-transform_pointers[2] = -1;
+transform_pointers.set([-1, -1, -1]);
+const camera_transform_pointers = generateSharedTypedArray(Int32Array, 2);
+camera_transform_pointers.set([-1, -1]);
+
+var thread_count = 0;
 
 
 const children = new Map();
@@ -63,13 +65,20 @@ function portReader(p) {
 
   return reader;
 }
-var signal_clock, delta_clock, port, in_reader, id, parent_id;
+var signal_clock, delta_clock, port, in_reader, id, parent_id, entity_death_signal;
 var parent_io_waiting = [];
 var child_io_waiting = new Map();
 
+addEventListener("message", (e) => {
+  const data = e.data;
+  if (data.etype === "death") {
+    children.delete(data.id);
+  }
+})
 
 
 async function spawn_thread(module, thread_info=null) {
+  thread_count++;
   const thread = new Worker("thread.js", { type: "module" });
   const isMain = (thread_info == null);
 
@@ -161,6 +170,12 @@ async function spawn_thread(module, thread_info=null) {
       }
     }
   });
+  const thread_death_signal = generateSharedTypedArray(Int32Array, 1);
+  Atomics.waitAsync(thread_death_signal, 0, 0).value.then(() => {
+    thread.terminate();
+    thread_count--;
+    if (thread_count === 0) Atomics.notify(entity_death_signal, 0); // if no more threads are running, terminate entity
+  });
 
   // initialize thread
   let thread_unready = true;
@@ -179,7 +194,9 @@ async function spawn_thread(module, thread_info=null) {
     "signal_clock": signal_clock,
     "delta_clock": delta_clock,
     "parent_id": parent_id,
-    "id": id
+    "id": id,
+    "camera_transform_pointers": camera_transform_pointers,
+    "death_signal": thread_death_signal
   };
 
   if (!isMain) {
@@ -200,6 +217,7 @@ let init_promise = new Promise((resolve) => {init_resolver = resolve}); // now, 
 var module;
 function init_listener(e) {
   module = e.data.module;
+  entity_death_signal = e.data.death_signal;
   signal_clock = e.data.signal_clock;
   delta_clock = e.data.delta_clock;
   parent_id = e.data.parent_id;
@@ -222,5 +240,6 @@ postMessage({
   "etype": "ready",
   "memory": memory,
   "transformation_pointers": transform_pointers,
-  "port": channel.port2
+  "port": channel.port2,
+  "camera_transformation_pointers": camera_transform_pointers
 }, [channel.port2]);

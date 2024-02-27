@@ -51,17 +51,19 @@ const generateSharedTypedArray = (array_type, elements) => {
   return new array_type(new SharedArrayBuffer(elements * array_type.BYTES_PER_ELEMENT));
 };
 const return_arr = generateSharedTypedArray(Int32Array, 2); // used for blocking functions
+var death_arr; // shared array used as an "i am dead" signal
 
 let ready = false; // if the thread is ready or not
 const thread_data = {
   module: null,
   instance: null,
   memory: null,
-  transformation_pointer_array: null, // a shared array containing the pointers to position, rotation, and scaling
+  transformation_pointer_array: null, // a shared array containing the pointers to entity position, rotation, and scaling
   clock: { // shared two-element array similar to return_arr. first element is just a wake-up call every frame, second is delta time
     "signal": null,
     "delta": null
   },
+  camera_transformation_pointer_array: null // a shared array containing pointers mirroring camera position and rotation
 };
 
 // this function will one day be replaced with a simple TextDecoder.decode() call, but that still doesn't support SharedArrayBuffers
@@ -271,6 +273,18 @@ const import_object = {
       Atomics.wait(return_arr, 1, 0);
       return return_arr[0];
     }
+  },
+  camera: {
+    set_camera_position_mirror(pointer) {
+      thread_data.camera_transformation_pointer_array[0] = pointer;
+      Atomics.notify(thread_data.camera_transformation_pointer_array, 0);
+      Atomics.wait(thread_data.camera_transformation_pointer_array, 0, pointer);
+    },
+    set_camera_rotation_mirror(pointer) {
+      thread_data.camera_transformation_pointer_array[1] = pointer;
+      Atomics.notify(thread_data.camera_transformation_pointer_array, 1);
+      Atomics.wait(thread_data.camera_transformation_pointer_array, 1, pointer);
+    }
   }
 }
 
@@ -288,6 +302,8 @@ addEventListener("message", init_listener);
 await init_promise;
 removeEventListener("message", init_listener);
 
+death_arr = init_data.death_signal;
+
 import_object.env.memory = init_data.memory;
 import_object.env.job = NUM_CONST(jobs[init_data.job]);
 import_object.env.parent_id = init_data.parent_id;
@@ -299,6 +315,7 @@ thread_data.module = init_data.module;
 thread_data.transformation_pointer_array = init_data.transform_pointers;
 thread_data.clock.signal = init_data.signal_clock;
 thread_data.clock.delta = init_data.delta_clock;
+thread_data.camera_transformation_pointer_array = init_data.camera_transform_pointers;
 thread_data.instance = await WebAssembly.instantiate(init_data.module, import_object);
 
 ready = true;
@@ -307,3 +324,4 @@ postMessage({"etype": "ready"});
 const exports = thread_data.instance.exports;
 
 if (init_data.job === "main" || init_data.job === "side") exports[init_data.func]();
+Atomics.notify(death_arr, 0); // terminate thread
