@@ -51,7 +51,8 @@ const generateSharedTypedArray = (array_type, elements) => {
   return new array_type(new SharedArrayBuffer(elements * array_type.BYTES_PER_ELEMENT));
 };
 const return_arr = generateSharedTypedArray(Int32Array, 2); // used for blocking functions
-var death_arr; // shared array used as an "i am dead" signal
+var death_arr, squeeze_signal; // shared array used as an "i am dead" signal, shared array used to detect vr squeezes
+const child_reader = generateSharedTypedArray(Int32Array, 2); // get children
 
 let ready = false; // if the thread is ready or not
 const thread_data = {
@@ -140,6 +141,16 @@ const import_object = {
       Atomics.wait(return_arr, 1, 0);
 
       return return_arr[0];
+    },
+    get_child_id(index) {
+      child_reader[0] = index;
+      child_reader[1] = 0;
+      Atomics.notify(child_reader, 1);
+      Atomics.wait(child_reader, 1, 0);
+      return child_reader[0];
+    },
+    current_frame() {
+      return thread_data.clock.delta[1];
     }
   },
   // stuff relating to this thread's task
@@ -285,6 +296,12 @@ const import_object = {
       Atomics.notify(thread_data.camera_transformation_pointer_array, 1);
       Atomics.wait(thread_data.camera_transformation_pointer_array, 1, pointer);
     }
+  },
+  vr: {
+    wait_for_squeeze() {
+      Atomics.wait(squeeze_signal, 1, 0);
+      return squeeze_signal[0];
+    }
   }
 }
 
@@ -310,6 +327,7 @@ import_object.env.parent_id = init_data.parent_id;
 import_object.env.id = init_data.id;
 if (init_data.job === "side") import_object.env.thread_input = NUM_CONST(init_data.p);
 
+squeeze_signal = init_data.squeeze_signal;
 thread_data.memory = init_data.memory;
 thread_data.module = init_data.module;
 thread_data.transformation_pointer_array = init_data.transform_pointers;
@@ -319,7 +337,10 @@ thread_data.camera_transformation_pointer_array = init_data.camera_transform_poi
 thread_data.instance = await WebAssembly.instantiate(init_data.module, import_object);
 
 ready = true;
-postMessage({"etype": "ready"});
+postMessage({
+  "etype": "ready",
+  "child_reader": child_reader
+});
 
 const exports = thread_data.instance.exports;
 

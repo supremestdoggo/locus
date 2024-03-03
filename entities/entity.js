@@ -65,7 +65,7 @@ function portReader(p) {
 
   return reader;
 }
-var signal_clock, delta_clock, port, in_reader, id, parent_id, entity_death_signal;
+var signal_clock, delta_clock, port, in_reader, id, parent_id, entity_death_signal, squeeze_signal;
 var parent_io_waiting = [];
 var child_io_waiting = new Map();
 
@@ -179,7 +179,16 @@ async function spawn_thread(module, thread_info=null) {
 
   // initialize thread
   let thread_unready = true;
-  const ready_listener = () => {
+  const ready_listener = (e) => {
+    const get_children_routine = async () => {
+      while (true) {
+        await Atomics.waitAsync(e.data.child_reader, 1, 0).value;
+        if (children.has(e.data.child_reader[0])) e.data.child_reader[0] = children.keys().find((_, index) => {return index == e.data.child_reader[0]});
+        else e.data.child_reader[0] = -1;
+        e.data.child_reader[1] = 0;
+      }
+    }
+    get_children_routine();
     thread_unready = false;
   };
   thread.addEventListener("message", ready_listener);
@@ -196,7 +205,8 @@ async function spawn_thread(module, thread_info=null) {
     "parent_id": parent_id,
     "id": id,
     "camera_transform_pointers": camera_transform_pointers,
-    "death_signal": thread_death_signal
+    "death_signal": thread_death_signal,
+    "squeeze_signal": squeeze_signal
   };
 
   if (!isMain) {
@@ -222,6 +232,7 @@ function init_listener(e) {
   delta_clock = e.data.delta_clock;
   parent_id = e.data.parent_id;
   id = e.data.id;
+  squeeze_signal = e.data.squeeze_signal;
 
   init_resolver();
 }

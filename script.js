@@ -1,19 +1,21 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { VRButton } from 'three/addons/webxr/VRButton.js';
 
 // 3D stuff
 const loader = new GLTFLoader();
 const scene = new THREE.Scene();
 scene.background = new THREE.Color('#191919');
 const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 1, 10000);
+camera.rotation.set(0, 3.0 * Math.PI / 2.0, 0)
 const light = new THREE.AmbientLight();
 scene.add(light);
 
 const renderer = new THREE.WebGLRenderer();
 renderer.setSize(window.innerWidth, window.innerHeight);
-//renderer.xr.enabled = true;
+renderer.xr.enabled = true;
 document.body.appendChild(renderer.domElement);
-//document.body.appendChild(VRButton.createButton(renderer));
+document.body.appendChild(VRButton.createButton(renderer));
 
 
 const generateSharedTypedArray = (array_type, elements) => {
@@ -22,6 +24,15 @@ const generateSharedTypedArray = (array_type, elements) => {
 
 const signal_clock = generateSharedTypedArray(Int32Array, 2);
 const delta_clock = new Float32Array(signal_clock.buffer);
+const squeeze_signal = generateSharedTypedArray(Int32Array, 2);
+/*renderer.xr.getSession().addEventListener("squeeze", (e) => {
+  const handedness = e.inputSource.handedness;
+  if (handedness == "left") squeeze_signal[0] = 1;
+  else if (handedness == "right") squeeze_signal[0] = 2;
+  else if (handedness == "none") squeeze_signal[0] = 0;
+
+  Atomics.notify(squeeze_signal, 1);
+});*/
 
 let entities = new Map();
 
@@ -66,19 +77,22 @@ async function init_entity(parent, code=null, url="", port) {
 
           const geo = gltf.scene.children[0];
           geo.removeFromParent();
-        
-          const box = new THREE.Box3().setFromObject(geo);
-          const size = box.getSize(new THREE.Vector3()).length();
-          const center = box.getCenter(new THREE.Vector3());
-        
-          //geo.position.x += camera.position.x - center.x;
-          //geo.position.y += camera.position.y - center.y;
-          //geo.position.z += camera.position.z - center.z;
 
-          //geo.position.x -= size / 1.5;
-          //geo.position.y -= size / 1.5;
-          //geo.position.z -= size / 1.5;
-          //camera.lookAt((new THREE.Box3().setFromObject(geo)).getCenter(new THREE.Vector3()));
+          if (entity.mirrors.position) {
+            geo.position.x = entity.mirrors.position[0];
+            geo.position.y = entity.mirrors.position[1];
+            geo.position.z = entity.mirrors.position[2];
+          } else geo.position.set(0, 0, 0);
+          if (entity.mirrors.rotation) {
+            geo.rotation.x = entity.mirrors.rotation[0];
+            geo.rotation.y = entity.mirrors.rotation[1];
+            geo.rotation.z = entity.mirrors.rotation[2];
+          } else geo.rotation.set(0, 0, 0);
+          if (entity.mirrors.scale) {
+            geo.scale.x = entity.mirrors.scale[0];
+            geo.scale.y = entity.mirrors.scale[1];
+            geo.scale.z = entity.mirrors.scale[2];
+          } else geo.scale.set(0, 0, 0);
         
           entity.geometry = geo;
           scene.add(geo);
@@ -146,7 +160,8 @@ async function init_entity(parent, code=null, url="", port) {
               position[0] = entity.geometry.position.x;
               position[1] = entity.geometry.position.y;
               position[2] = entity.geometry.position.z;
-            }
+            } else if (entity.mirrors.position) position.set(entity.mirrors.position);
+            else position.set([0, 0, 0]);
             entity.mirrors.position = position;
           }
           pointers[0] = -1;
@@ -163,7 +178,8 @@ async function init_entity(parent, code=null, url="", port) {
               rotation[0] = entity.geometry.rotation.x;
               rotation[1] = entity.geometry.rotation.y;
               rotation[2] = entity.geometry.rotation.z;
-            }
+            } else if (entity.mirrors.rotation) rotation.set(entity.mirrors.rotation);
+            else rotation.set([0, 0, 0]);
             entity.mirrors.rotation = rotation;
           }
           pointers[1] = -1;
@@ -180,7 +196,8 @@ async function init_entity(parent, code=null, url="", port) {
               scale[0] = entity.geometry.scale.x;
               scale[1] = entity.geometry.scale.y;
               scale[2] = entity.geometry.scale.z;
-            }
+            } else if (entity.mirrors.scale) scale.set(entity.mirrors.scale);
+            else scale.set([0, 0, 0]);
             entity.mirrors.scale = scale;
           }
           pointers[2] = -1;
@@ -239,7 +256,8 @@ async function init_entity(parent, code=null, url="", port) {
       "signal_clock": signal_clock,
       "delta_clock": delta_clock,
       "parent_id": parent,
-      "id": e_id
+      "id": e_id,
+      "squeeze_signal": squeeze_signal
     });
     await new Promise(resolve => setTimeout(resolve, 25))
   }
